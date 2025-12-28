@@ -9,6 +9,13 @@ curl -fsSL https://raw.githubusercontent.com/oreoriorosu/claude-tools/main/insta
 source ~/.bashrc
 ```
 
+## アンインストール
+
+```bash
+~/bin/claude-tools/uninstall.sh
+source ~/.bashrc
+```
+
 ## 機能
 
 | コマンド | 説明 |
