@@ -2,31 +2,24 @@
 
 Claude Code の tmux セッション管理ツール集
 
-## 機能
-
-- `claude-dev` - プロジェクトを選択して Claude を起動（tmux セッション）
-- `claude-switch` - 実行中のセッション間を切り替え
-- `claude-list` - プロジェクトとセッションの一覧表示
-- `claude-kill` - 特定のセッションを終了
-- `claude-kill-all` - 全 Claude セッションを終了
-- `claude-clean` - 古い会話履歴を削除
-- `claude-help` - ヘルプ表示
-
 ## インストール
 
 ```bash
-# リポジトリをクローン
-git clone https://github.com/yourusername/claude-tools.git ~/bin/claude-tools
-
-# 実行権限を付与
-chmod +x ~/bin/claude-tools/*.sh
-
-# .bashrc に追加
-echo 'source ~/bin/claude-tools/claude-tools.sh' >> ~/.bashrc
-
-# 反映
+curl -fsSL https://raw.githubusercontent.com/danndizumu/claude-tools/main/install.sh | bash
 source ~/.bashrc
 ```
+
+## 機能
+
+| コマンド | 説明 |
+|----------|------|
+| `claude-dev` | プロジェクトを選択して Claude を起動 |
+| `claude-switch` | 実行中のセッション間を切り替え |
+| `claude-list` | プロジェクトとセッションの一覧表示 |
+| `claude-kill` | 特定のセッションを終了 |
+| `claude-kill-all` | 全 Claude セッションを終了 |
+| `claude-clean` | 古い会話履歴を削除 |
+| `claude-help` | ヘルプ表示 |
 
 ## 使い方
 
