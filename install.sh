@@ -3,7 +3,7 @@
 
 set -e
 
-REPO_URL="https://github.com/danndizumu/claude-tools.git"
+REPO_URL="https://github.com/oreoriorosu/claude-tools.git"
 INSTALL_DIR="$HOME/bin/claude-tools"
 
 echo "Installing claude-tools..."

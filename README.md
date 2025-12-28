@@ -5,7 +5,7 @@ Claude Code の tmux セッション管理ツール集
 ## インストール
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/danndizumu/claude-tools/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/oreoriorosu/claude-tools/main/install.sh | bash
 source ~/.bashrc
 ```
 
