@@ -1,6 +1,6 @@
 #!/bin/bash
 # claude-tools.sh - Claude Code tmux session management tools
-# https://github.com/danndizumu/claude-tools
+# https://github.com/oreoriorosu/claude-tools
 
 CLAUDE_TOOLS_BASE_DIR="${CLAUDE_TOOLS_BASE_DIR:-/mnt/c/git}"
 
@@ -286,19 +286,355 @@ claude-help() {
     echo "  claude-list           - プロジェクトとセッション一覧表示"
     echo "  claude-kill [project] - 特定セッションの終了"
     echo "  claude-kill-all       - 全Claudeセッション終了"
+    echo "  claude-archive        - 古い履歴をアーカイブ"
+    echo "  claude-restore        - アーカイブを復元"
     echo "  claude-help           - このヘルプを表示"
-    echo "  claude-clean          - Claude履歴の古いものを削除"
     echo ""
     echo "例:"
     echo "  claude-dev                    # プロジェクト選択メニューを表示"
     echo "  claude-dev my_project         # 直接プロジェクトを指定"
     echo "  claude-switch                 # セッション切り替えメニュー"
     echo "  claude-kill my_project        # 特定セッションを終了"
-    echo "  claude-clean 30d              # 30日より前の履歴を削除"
+    echo "  claude-archive 30d            # 30日より古い履歴をアーカイブ"
+    echo "  claude-archive 30d --all      # 全プロジェクト対象"
+    echo "  claude-restore --list         # アーカイブ一覧表示"
+    echo "  claude-restore                # 対話式で復元"
     echo ""
     echo "環境変数:"
     echo "  CLAUDE_TOOLS_BASE_DIR         # プロジェクトのベースディレクトリ (default: /mnt/c/git)"
 }
 
-# Alias for cleanup script
-alias claude-clean='~/bin/claude-tools/cleanup_claude_logs.sh'
+# Archive old Claude history files
+claude-archive() {
+    local ARCHIVE_BASE="$HOME/.claude/archive"
+    local PROJECTS_DIR="$HOME/.claude/projects"
+    local WARNING_HOURS=6
+    local period=""
+    local target_project=""
+    local all_projects=false
+
+    # Parse arguments
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -p|--project)
+                target_project="$2"
+                shift 2
+                ;;
+            --all)
+                all_projects=true
+                shift
+                ;;
+            *)
+                if [ -z "$period" ]; then
+                    period="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    if [ -z "$period" ]; then
+        echo "使用法: claude-archive <期間> [-p プロジェクト名] [--all]"
+        echo ""
+        echo "例:"
+        echo "  claude-archive 30d              # 対話式でプロジェクト選択"
+        echo "  claude-archive 30d -p sumo      # 特定プロジェクト"
+        echo "  claude-archive 30d --all        # 全プロジェクト"
+        return 1
+    fi
+
+    # Parse period
+    local age_min
+    if [[ "$period" =~ ^([0-9]+)([dhm])$ ]]; then
+        local value="${BASH_REMATCH[1]}"
+        local unit="${BASH_REMATCH[2]}"
+        case $unit in
+            d) age_min=$((value * 1440)) ;;
+            h) age_min=$((value * 60)) ;;
+            m) age_min=$value ;;
+        esac
+    else
+        echo "エラー: 期間の形式が不正です (例: 30d, 12h, 90m)"
+        return 1
+    fi
+
+    # Warning for short period
+    if ((age_min < WARNING_HOURS * 60)); then
+        echo "警告: ${period} は短い期間です。続行しますか？"
+        read -p "[y/N]: " confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+            echo "キャンセルしました"
+            return 1
+        fi
+    fi
+
+    # Get project list
+    local projects=()
+    if [ "$all_projects" = true ]; then
+        for dir in "$PROJECTS_DIR"/*; do
+            [ -d "$dir" ] && projects+=("$(basename "$dir")")
+        done
+    elif [ -n "$target_project" ]; then
+        local encoded_path=$(echo "/mnt/c/git/$target_project" | sed 's|/|-|g')
+        if [ -d "$PROJECTS_DIR/$encoded_path" ]; then
+            projects+=("$encoded_path")
+        else
+            echo "エラー: プロジェクト '$target_project' が見つかりません"
+            return 1
+        fi
+    else
+        # Interactive selection
+        echo "アーカイブするプロジェクトを選択:"
+        local counter=1
+        local available=()
+        for dir in "$PROJECTS_DIR"/*; do
+            if [ -d "$dir" ]; then
+                local name=$(basename "$dir")
+                available+=("$name")
+                local file_count=$(find "$dir" -maxdepth 1 -name "*.jsonl" -type f 2>/dev/null | wc -l)
+                echo "  $counter) $name ($file_count ファイル)"
+                ((counter++))
+            fi
+        done
+        echo "  0) キャンセル"
+        echo ""
+        read -p "番号を入力: " choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#available[@]} ]; then
+            projects+=("${available[$((choice-1))]}")
+        elif [ "$choice" = "0" ]; then
+            echo "キャンセルしました"
+            return 1
+        else
+            echo "無効な選択です"
+            return 1
+        fi
+    fi
+
+    if [ ${#projects[@]} -eq 0 ]; then
+        echo "対象プロジェクトがありません"
+        return 1
+    fi
+
+    # Create archive directory
+    local timestamp=$(date +%Y-%m-%d_%H%M%S)
+    local archive_dir="$ARCHIVE_BASE/$timestamp"
+    mkdir -p "$archive_dir"
+
+    local total_files=0
+    local total_size=0
+    local archived_projects=()
+
+    for project in "${projects[@]}"; do
+        local project_dir="$PROJECTS_DIR/$project"
+        [ -d "$project_dir" ] || continue
+
+        # Get files sorted by modification time (oldest first)
+        mapfile -t files < <(find "$project_dir" -maxdepth 1 -name "*.jsonl" -type f -printf "%T@ %p\n" 2>/dev/null | sort -n | awk '{print $2}')
+
+        if [ ${#files[@]} -le 1 ]; then
+            echo "  $project: スキップ (1ファイル以下)"
+            continue
+        fi
+
+        # Exclude latest file
+        local files_to_check=("${files[@]:0:${#files[@]}-1}")
+        local archived_count=0
+
+        for file in "${files_to_check[@]}"; do
+            local file_time=$(stat -c %Y "$file")
+            local now=$(date +%s)
+            local age_minutes=$(((now - file_time) / 60))
+
+            if ((age_minutes > age_min)); then
+                # Create project archive directory
+                local project_archive="$archive_dir/$project"
+                mkdir -p "$project_archive"
+
+                local file_size=$(stat -c %s "$file")
+                mv "$file" "$project_archive/"
+                ((archived_count++))
+                ((total_files++))
+                total_size=$((total_size + file_size))
+            fi
+        done
+
+        if [ $archived_count -gt 0 ]; then
+            echo "  $project: $archived_count ファイルをアーカイブ"
+            archived_projects+=("$project")
+        fi
+    done
+
+    if [ $total_files -eq 0 ]; then
+        rmdir "$archive_dir" 2>/dev/null
+        echo "アーカイブ対象のファイルがありませんでした"
+        return 0
+    fi
+
+    # Create manifest
+    local size_human
+    if [ $total_size -ge 1048576 ]; then
+        size_human="$((total_size / 1048576))MB"
+    elif [ $total_size -ge 1024 ]; then
+        size_human="$((total_size / 1024))KB"
+    else
+        size_human="${total_size}B"
+    fi
+
+    cat > "$archive_dir/manifest.json" << EOF
+{
+  "created": "$(date -Iseconds)",
+  "period": "$period",
+  "projects": $(printf '%s\n' "${archived_projects[@]}" | jq -R . | jq -s .),
+  "files_count": $total_files,
+  "total_size": "$size_human"
+}
+EOF
+
+    echo ""
+    echo "アーカイブ完了: $archive_dir"
+    echo "  ファイル数: $total_files"
+    echo "  サイズ: $size_human"
+}
+
+# Restore archived Claude history files
+claude-restore() {
+    local ARCHIVE_BASE="$HOME/.claude/archive"
+    local PROJECTS_DIR="$HOME/.claude/projects"
+    local show_list=false
+    local target_archive=""
+
+    # Parse arguments
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -l|--list)
+                show_list=true
+                shift
+                ;;
+            *)
+                target_archive="$1"
+                shift
+                ;;
+        esac
+    done
+
+    # Check if archive directory exists
+    if [ ! -d "$ARCHIVE_BASE" ]; then
+        echo "アーカイブがありません"
+        return 1
+    fi
+
+    # Get archive list
+    local archives=()
+    for dir in "$ARCHIVE_BASE"/*; do
+        [ -d "$dir" ] && [ -f "$dir/manifest.json" ] && archives+=("$(basename "$dir")")
+    done
+
+    if [ ${#archives[@]} -eq 0 ]; then
+        echo "アーカイブがありません"
+        return 1
+    fi
+
+    # List mode
+    if [ "$show_list" = true ]; then
+        echo "アーカイブ一覧:"
+        echo ""
+        for archive in "${archives[@]}"; do
+            local manifest="$ARCHIVE_BASE/$archive/manifest.json"
+            local period=$(jq -r '.period' "$manifest" 2>/dev/null)
+            local files_count=$(jq -r '.files_count' "$manifest" 2>/dev/null)
+            local total_size=$(jq -r '.total_size' "$manifest" 2>/dev/null)
+            local projects=$(jq -r '.projects | join(", ")' "$manifest" 2>/dev/null)
+            echo "  $archive"
+            echo "    期間: $period, ファイル数: $files_count, サイズ: $total_size"
+            echo "    プロジェクト: $projects"
+            echo ""
+        done
+        return 0
+    fi
+
+    # Select archive
+    local selected_archive=""
+    if [ -n "$target_archive" ]; then
+        if [ -d "$ARCHIVE_BASE/$target_archive" ]; then
+            selected_archive="$target_archive"
+        else
+            echo "エラー: アーカイブ '$target_archive' が見つかりません"
+            return 1
+        fi
+    else
+        # Interactive selection
+        echo "復元するアーカイブを選択:"
+        echo ""
+        local counter=1
+        for archive in "${archives[@]}"; do
+            local manifest="$ARCHIVE_BASE/$archive/manifest.json"
+            local files_count=$(jq -r '.files_count' "$manifest" 2>/dev/null)
+            local total_size=$(jq -r '.total_size' "$manifest" 2>/dev/null)
+            echo "  $counter) $archive ($files_count ファイル, $total_size)"
+            ((counter++))
+        done
+        echo "  0) キャンセル"
+        echo ""
+        read -p "番号を入力: " choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#archives[@]} ]; then
+            selected_archive="${archives[$((choice-1))]}"
+        elif [ "$choice" = "0" ]; then
+            echo "キャンセルしました"
+            return 1
+        else
+            echo "無効な選択です"
+            return 1
+        fi
+    fi
+
+    local archive_dir="$ARCHIVE_BASE/$selected_archive"
+    local restored_files=0
+
+    echo "復元中: $selected_archive"
+
+    # Restore each project
+    for project_dir in "$archive_dir"/*; do
+        [ -d "$project_dir" ] || continue
+        local project=$(basename "$project_dir")
+        [ "$project" = "manifest.json" ] && continue
+
+        local target_dir="$PROJECTS_DIR/$project"
+        mkdir -p "$target_dir"
+
+        local count=0
+        for file in "$project_dir"/*.jsonl; do
+            [ -f "$file" ] || continue
+            local filename=$(basename "$file")
+
+            # Check for collision
+            if [ -f "$target_dir/$filename" ]; then
+                echo "  警告: $filename は既に存在します（スキップ）"
+                continue
+            fi
+
+            mv "$file" "$target_dir/"
+            ((count++))
+            ((restored_files++))
+        done
+
+        if [ $count -gt 0 ]; then
+            echo "  $project: $count ファイルを復元"
+        fi
+    done
+
+    # Remove empty archive directory
+    if [ $restored_files -gt 0 ]; then
+        # Remove empty project directories
+        for project_dir in "$archive_dir"/*; do
+            [ -d "$project_dir" ] && rmdir "$project_dir" 2>/dev/null
+        done
+        # Remove manifest and archive directory
+        rm -f "$archive_dir/manifest.json"
+        rmdir "$archive_dir" 2>/dev/null
+
+        echo ""
+        echo "復元完了: $restored_files ファイル"
+    else
+        echo "復元するファイルがありませんでした"
+    fi
+}

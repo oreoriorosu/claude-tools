@@ -25,7 +25,8 @@ source ~/.bashrc
 | `claude-list` | プロジェクトとセッションの一覧表示 |
 | `claude-kill` | 特定のセッションを終了 |
 | `claude-kill-all` | 全 Claude セッションを終了 |
-| `claude-clean` | 古い会話履歴を削除 |
+| `claude-archive` | 古い履歴をアーカイブ |
+| `claude-restore` | アーカイブを復元 |
 | `claude-help` | ヘルプ表示 |
 
 ## 使い方
@@ -59,15 +60,31 @@ claude-kill my-project
 claude-kill-all
 ```
 
-### 履歴クリーンアップ
+### 履歴アーカイブ
+
+古い履歴を削除せずにアーカイブし、必要に応じて復元できます。
 
 ```bash
-# 30日より古い履歴を削除
-claude-clean 30d
+# 対話式でプロジェクト選択してアーカイブ
+claude-archive 30d
 
-# 12時間より古い履歴を削除
-claude-clean 12h
+# 特定プロジェクトをアーカイブ
+claude-archive 30d -p sumo
+
+# 全プロジェクトを一括アーカイブ
+claude-archive 30d --all
+
+# アーカイブ一覧表示
+claude-restore --list
+
+# 対話式で復元
+claude-restore
+
+# 特定アーカイブを指定して復元
+claude-restore 2025-01-05_093000
 ```
+
+アーカイブは `~/.claude/archive/` に保存されます。
 
 ## 設定
 
@@ -96,6 +113,7 @@ source ~/bin/claude-tools/claude-tools.sh
 
 - bash
 - tmux
+- jq（アーカイブ機能で使用）
 - [Claude Code](https://github.com/anthropics/claude-code)
 
 ## ライセンス
