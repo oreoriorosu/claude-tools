@@ -21,6 +21,7 @@ source ~/.bashrc
 | コマンド | 説明 |
 |----------|------|
 | `claude-dev` | プロジェクトを選択して Claude を起動 |
+| `shell-dev` | プロジェクトを選択してシェルを起動 |
 | `claude-switch` | 実行中のセッション間を切り替え |
 | `claude-list` | プロジェクトとセッションの一覧表示 |
 | `claude-kill` | 特定のセッションを終了 |
@@ -44,10 +45,25 @@ claude-dev my-project
 claude-dev -l
 ```
 
+### シェルセッション
+
+sudo や手動コマンドの実行履歴を残すためのシェルセッション。
+
+```bash
+# カレントディレクトリでシェル起動
+shell-dev
+
+# プロジェクト名を指定して起動
+shell-dev my-project
+
+# プロジェクト一覧から選択
+shell-dev -l
+```
+
 ### セッション管理
 
 ```bash
-# 実行中セッションの切り替え
+# 実行中セッションの切り替え (Claude + Shell)
 claude-switch
 
 # セッション一覧表示
